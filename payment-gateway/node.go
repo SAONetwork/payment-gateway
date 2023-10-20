@@ -2,12 +2,10 @@ package payment_gateway
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	saodid "github.com/SaoNetwork/sao-did"
-	saokey "github.com/SaoNetwork/sao-did/key"
 	"github.com/SaoNetwork/sao-did/sid"
 	saodidtypes "github.com/SaoNetwork/sao-did/types"
-	"github.com/SaoNetwork/sao-node/api"
 	"github.com/SaoNetwork/sao-node/chain"
 	"github.com/SaoNetwork/sao-node/node/config"
 	"github.com/SaoNetwork/sao-node/node/repo"
@@ -16,6 +14,13 @@ import (
 	"github.com/dvsekhvalnov/jose2go/base64url"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
+	"github.com/ipfs/go-cid"
+	"github.com/multiformats/go-multiaddr"
+	"net/http"
+	"path"
+	"payment-gateway/api"
+	"payment-gateway/transport"
+	"strings"
 
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
@@ -37,6 +42,8 @@ type PaymentGateway struct {
 	repo      *repo.Repo
 	address   string
 	stopFuncs []StopFunc
+	tds       datastore.Read
+	rpcServer *http.Server
 	// used by store module
 	chainSvc *chain.ChainSvc
 }
@@ -74,13 +81,38 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	}
 
 	var stopFuncs []StopFunc
+	// p2p
+	peerKey, err := repo.PeerId()
+	if err != nil {
+		return nil, err
+	}
+
+	tds, err := repo.Datastore(ctx, "/transport")
+	if err != nil {
+		return nil, err
+	}
+
 	sn := PaymentGateway{
 		ctx:       ctx,
 		cfg:       cfg,
 		repo:      repo,
 		address:   nodeAddr,
 		stopFuncs: stopFuncs,
+		tds:       tds,
 		chainSvc:  chainSvc,
+	}
+
+	transportStagingPath := path.Join(repo.Path, "staging")
+	rpcHandler := transport.NewHandler(ctx, &sn, tds, cfg, transportStagingPath)
+	for _, address := range cfg.Transport.TransportListenAddress {
+		if strings.Contains(address, "udp") {
+			_, err := transport.StartLibp2pRpcServer(ctx, address, peerKey, tds, cfg, rpcHandler)
+			if err != nil {
+				return nil, types.Wrap(types.ErrStartLibP2PRPCServerFailed, err)
+			}
+		} else {
+			return nil, types.Wrapf(types.ErrInvalidServerAddress, "invalid transport server address %s", address)
+		}
 	}
 
 	var status = NODE_STATUS_ONLINE | NODE_STATUS_SERVE_PAYMENT
@@ -111,6 +143,14 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	}
 
 	chainSvc.StartStatusReporter(ctx, sn.address, status)
+
+	// api server
+	rpcServer, err := newRpcServer(&sn, &cfg.Api)
+	if err != nil {
+		return nil, err
+	}
+	sn.rpcServer = rpcServer
+	sn.stopFuncs = append(sn.stopFuncs, rpcServer.Shutdown)
 
 	sn.stopFuncs = append(sn.stopFuncs, func(_ context.Context) error {
 		for _, c := range notifyChan {
@@ -200,53 +240,68 @@ func (n *PaymentGateway) validSignature(ctx context.Context, proposal types.Cons
 	return nil
 }
 
-func (n *PaymentGateway) getDidManager(ctx context.Context, keyringHome string, keyName string) (*saodid.DidManager, string, error) {
-	fmt.Println("keyName: ", keyName)
+func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
+	// check meta?
 
-	address, err := chain.GetAddress(ctx, keyringHome, keyName)
+	keys := datastore.NewKey("order_proposal_" + key)
+	bytes, err := n.tds.Get(ctx, keys)
 	if err != nil {
-		return nil, "", err
+		return err
 	}
 
-	payload := fmt.Sprintf("cosmos %s allows to generate did", address)
-	secret, err := chain.SignByAccount(ctx, keyringHome, keyName, []byte(payload))
+	var orderProposal types.OrderStoreProposal
+	err = json.Unmarshal(bytes, &orderProposal)
 	if err != nil {
-		return nil, "", types.Wrap(types.ErrSignedFailed, err)
+		return err
 	}
 
-	provider, err := saokey.NewSecp256k1Provider(secret)
-	if err != nil {
-		return nil, "", types.Wrap(types.ErrCreateProviderFailed, err)
-	}
-	resolver := saokey.NewKeyResolver()
-
-	didManager := saodid.NewDidManager(provider, resolver)
-	_, err = didManager.Authenticate([]string{}, "")
-	if err != nil {
-		return nil, "", types.Wrap(types.ErrAuthenticateFailed, err)
-	}
-
-	return &didManager, address, nil
+	_, _, _, err = n.chainSvc.StoreOrder(ctx, n.address, &orderProposal)
+	return err
 }
 
-func (n *PaymentGateway) SendProposal(ctx context.Context, proposal saotypes.Proposal, signature saotypes.JwsSignature) error {
+func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (string, error) {
 	// check meta?
-	addr, err := n.chainSvc.QueryPaymentAddress(ctx, proposal.PaymentDid)
+	addr, err := n.chainSvc.QueryPaymentAddress(ctx, proposal.Proposal.PaymentDid)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if addr != n.address {
-		return types.ErrInvalidServerAddress
+		return "", types.ErrInvalidServerAddress
 	}
 
-	err = n.validSignature(ctx, &proposal, proposal.Owner, signature)
+	err = n.validSignature(ctx, &proposal.Proposal, proposal.Proposal.Owner, proposal.JwsSignature)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	_, _, _, err = n.chainSvc.StoreOrder(ctx, n.address, &types.OrderStoreProposal{
-		Proposal:     proposal,
-		JwsSignature: signature,
-	})
-	return err
+	byte, err := json.Marshal(proposal)
+	_, cid, err := cid.CidFromBytes(byte)
+
+	cidStr := cid.String()
+	tds, err := n.repo.Datastore(ctx, "/transport")
+
+	keys := datastore.NewKey("order_proposal_" + cidStr)
+	tds.Put(ctx, keys, byte)
+
+	return cidStr, nil
+}
+
+func newRpcServer(ga api.SaoApi, cfg *config.API) (*http.Server, error) {
+	log.Info("initialize rpc server")
+
+	handler, err := GatewayRpcHandler(ga, cfg.EnablePermission)
+	if err != nil {
+		return nil, types.Wrapf(types.ErrStartPRPCServerFailed, "failed to instantiate rpc handler: %v", err)
+	}
+
+	strma := strings.TrimSpace(cfg.ListenAddress)
+	endpoint, err := multiaddr.NewMultiaddr(strma)
+	if err != nil {
+		return nil, types.Wrapf(types.ErrInvalidServerAddress, "invalid endpoint: %s, %s", strma, err)
+	}
+	rpcServer, err := ServeRPC(handler, endpoint)
+	if err != nil {
+		return nil, types.Wrapf(types.ErrStartPRPCServerFailed, "failed to start json-rpc endpoint: %s", err)
+	}
+	return rpcServer, nil
 }

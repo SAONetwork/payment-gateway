@@ -7,6 +7,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	payment_gateway "payment-gateway/payment-gateway"
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
@@ -365,14 +366,14 @@ var runCmd = &cli.Command{
 			return err
 		}
 
-		snode, err := node.NewNode(ctx, repo, cliutil.KeyringHome, cctx)
+		saopayment, err := payment_gateway.NewPaymentGateway(ctx, repo, cliutil.KeyringHome)
 		if err != nil {
 			return err
 		}
 
 		finishCh := node.MonitorShutdown(
 			shutdownChan,
-			node.ShutdownHandler{Component: "storagenode", StopFunc: snode.Stop},
+			node.ShutdownHandler{Component: "paymentgateway", StopFunc: saopayment.Stop},
 		)
 		<-finishCh
 		return nil
