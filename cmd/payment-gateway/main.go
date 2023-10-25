@@ -31,11 +31,11 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var log = logging.Logger("node")
+var log = logging.Logger("payment")
 
 const (
 	FlagStorageRepo        = "repo"
-	FlagStorageDefaultRepo = "~/.sao-node"
+	FlagStorageDefaultRepo = "~/.sao-payment"
 )
 
 var NodeApi string
@@ -85,8 +85,8 @@ func before(_ *cli.Context) error {
 
 func main() {
 	app := &cli.App{
-		Name:                 cliutil.APP_NAME_NODE,
-		Usage:                "Command line for sao network node",
+		Name:                 "saopayment",
+		Usage:                "Command line for sao network payment node",
 		EnableBashCompletion: true,
 		Version:              build.UserVersion(),
 		Before:               before,
