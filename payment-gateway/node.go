@@ -3,6 +3,15 @@ package payment_gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math/big"
+	"net/http"
+	"path"
+	"payment-gateway/api"
+	"payment-gateway/transport"
+	"strconv"
+	"strings"
+
 	saodid "github.com/SaoNetwork/sao-did"
 	"github.com/SaoNetwork/sao-did/sid"
 	saodidtypes "github.com/SaoNetwork/sao-did/types"
@@ -12,15 +21,12 @@ import (
 	"github.com/SaoNetwork/sao-node/types"
 	saotypes "github.com/SaoNetwork/sao/x/sao/types"
 	"github.com/dvsekhvalnov/jose2go/base64url"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multiaddr"
-	"net/http"
-	"path"
-	"payment-gateway/api"
-	"payment-gateway/transport"
-	"strings"
 
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
@@ -142,6 +148,24 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 		return nil, err
 	}
 
+	provider, _ := mds.Get(ctx, datastore.NewKey("provider"))
+	payee, _ := mds.Get(ctx, datastore.NewKey("payee"))
+	height, _ := mds.Get(ctx, datastore.NewKey("height"))
+
+	from, _ := strconv.ParseInt(string(height), 10, 64)
+
+	listener, err := NewListener(string(provider), string(payee))
+
+	if err != nil {
+		return nil, err
+	}
+
+	ch := make(chan ethtypes.Log, 10)
+
+	go sn.handlePayment(ch)
+
+	go listener.ListenOnPayee(from, ch)
+
 	chainSvc.StartStatusReporter(ctx, sn.address, status)
 
 	// api server
@@ -160,6 +184,29 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	})
 
 	return &sn, nil
+}
+
+func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
+
+	payeeABI, _ := abi.JSON(strings.NewReader(PayeeABI))
+	ctx := context.Background()
+
+	for {
+		e := <-ch
+		paymentId := new(big.Int).SetBytes(e.Topics[0].Bytes())
+
+		fmt.Println(paymentId)
+
+		val, _ := payeeABI.Events["PaymentCreated"].Inputs.UnpackValues(e.Data)
+
+		cid := val[0].(string)
+
+		fmt.Println(cid)
+
+		n.SendProposal(ctx, cid)
+
+	}
+
 }
 
 func (n *PaymentGateway) Stop(ctx context.Context) error {

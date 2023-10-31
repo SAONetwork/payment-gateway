@@ -7,7 +7,8 @@ package main
 import (
 	"bufio"
 	"fmt"
-	payment_gateway "payment-gateway/payment-gateway"
+	p "payment-gateway/payment-gateway"
+	"payment-gateway/transport"
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
@@ -35,7 +36,7 @@ var log = logging.Logger("node")
 
 const (
 	FlagStorageRepo        = "repo"
-	FlagStorageDefaultRepo = "~/.sao-node"
+	FlagStorageDefaultRepo = "~/.sao-payment"
 )
 
 var NodeApi string
@@ -126,6 +127,21 @@ var initCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
+			Name:     "payee",
+			Usage:    "payee contract address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "chain provider",
+			Required: true,
+		},
+		&cli.IntFlag{
+			Name:     "height",
+			Usage:    "height",
+			Required: true,
+		},
+		&cli.StringFlag{
 			Name:     "multiaddr",
 			Usage:    "nodes' multiaddr",
 			Value:    "/ip4/127.0.0.1/tcp/5153/",
@@ -149,6 +165,14 @@ var initCmd = &cli.Command{
 		repoPath := cctx.String(FlagStorageRepo)
 		creator := cctx.String("creator")
 		txPoolSize := cctx.Uint("tx-pool-size")
+		payee := cctx.String("payee")
+		provider := cctx.String("provider")
+		height := cctx.Int64("height")
+		_, err := transport.NewProvider(provider)
+
+		if err != nil {
+			return err
+		}
 
 		r, err := initRepo(repoPath, chainAddress, txPoolSize)
 		if err != nil {
@@ -166,6 +190,18 @@ var initCmd = &cli.Command{
 			return types.Wrap(types.ErrOpenDataStoreFailed, err)
 		}
 		if err := mds.Put(ctx, datastore.NewKey("node-address"), []byte(creator)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("payee"), []byte(payee)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("provider"), []byte(provider)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("heigh"), []byte(fmt.Sprintf("%d", height))); err != nil {
 			return types.Wrap(types.ErrGetFailed, err)
 		}
 
@@ -366,7 +402,7 @@ var runCmd = &cli.Command{
 			return err
 		}
 
-		saopayment, err := payment_gateway.NewPaymentGateway(ctx, repo, cliutil.KeyringHome)
+		saopayment, err := p.NewPaymentGateway(ctx, repo, cliutil.KeyringHome)
 		if err != nil {
 			return err
 		}

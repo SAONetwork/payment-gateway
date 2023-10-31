@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"sync"
 
+	"payment-gateway/api"
+
 	"github.com/SaoNetwork/sao-node/node/config"
 	"github.com/SaoNetwork/sao-node/types"
 	"github.com/ipfs/go-datastore"
-	"payment-gateway/api"
 )
 
 type RpcHandler struct {
