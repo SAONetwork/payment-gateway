@@ -78,15 +78,7 @@ func StartLibp2pRpcServer(ctx context.Context, address string, serverKey crypto.
 
 	if len(peerInfos) > 0 {
 		key := datastore.NewKey(fmt.Sprintf(types.PEER_INFO_PREFIX))
-		peers, err := db.Get(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		if len(peers) > 0 {
-			db.Put(ctx, key, []byte(string(peers)+","+strings.Join(peerInfos, ",")))
-		} else {
-			db.Put(ctx, key, []byte(strings.Join(peerInfos, ",")))
-		}
+		db.Put(ctx, key, []byte(strings.Join(peerInfos, ",")))
 	}
 
 	rs := &Libp2pRpcServer{
