@@ -116,7 +116,7 @@ func (rs *Libp2pRpcServer) HandleStream(s network.Stream) {
 		var result string
 		var err error
 		switch req.Method {
-		case "Payment.StoreProposal":
+		case "Sao.StoreProposal":
 			result, err = rs.RH.StoreProposal(req.Params)
 		default:
 			resp.Error = "N/a"

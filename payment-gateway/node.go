@@ -19,13 +19,13 @@ import (
 	"github.com/SaoNetwork/sao-node/node/config"
 	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
+	"github.com/SaoNetwork/sao-node/utils"
 	saotypes "github.com/SaoNetwork/sao/x/sao/types"
 	"github.com/dvsekhvalnov/jose2go/base64url"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
-	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/ipfs/go-datastore"
@@ -310,10 +310,10 @@ func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.Order
 	// check meta?
 	addr, err := n.chainSvc.QueryPaymentAddress(ctx, proposal.Proposal.PaymentDid)
 	if err != nil {
-		return "", err
+		return "", types.Wrapf(err, "failed to query payment address")
 	}
 	if addr != n.address {
-		return "", types.ErrInvalidServerAddress
+		return "", types.Wrapf(types.ErrInvalidServerAddress, "not empty")
 	}
 
 	err = n.validSignature(ctx, &proposal.Proposal, proposal.Proposal.Owner, proposal.JwsSignature)
@@ -322,7 +322,14 @@ func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.Order
 	}
 
 	byte, err := json.Marshal(proposal)
-	_, cid, err := cid.CidFromBytes(byte)
+	if err != nil {
+		return "", err
+	}
+
+	cid, err := utils.CalculateCid(byte)
+	if err != nil {
+		return "", err
+	}
 
 	cidStr := cid.String()
 	tds, err := n.repo.Datastore(ctx, "/transport")

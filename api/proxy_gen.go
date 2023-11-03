@@ -22,7 +22,7 @@ type SaoApiStruct struct {
 
 		SendProposal func(p0 context.Context, p1 string) error `perm:"write"`
 
-		StoreProposal func(p0 context.Context, p1 types.OrderStoreProposal) (string, error) ``
+		StoreProposal func(p0 context.Context, p1 types.OrderStoreProposal) (string, error) `perm:"write"`
 	}
 }
 
