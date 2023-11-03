@@ -1,9 +1,11 @@
-package transport
+package ethprovider
 
 import (
 	"context"
 	"math/big"
 	"os"
+
+	logging "github.com/ipfs/go-log/v2"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -12,6 +14,8 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 )
+
+var log = logging.Logger("ethprovider")
 
 type Provider struct {
 	client *ethclient.Client

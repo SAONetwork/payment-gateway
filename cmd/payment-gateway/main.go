@@ -7,8 +7,8 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"payment-gateway/ethprovider"
 	p "payment-gateway/payment-gateway"
-	"payment-gateway/transport"
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
@@ -63,7 +63,7 @@ func before(_ *cli.Context) error {
 	_ = logging.SetLogLevel("chain", "INFO")
 	_ = logging.SetLogLevel("gateway", "INFO")
 	_ = logging.SetLogLevel("storage", "INFO")
-	_ = logging.SetLogLevel("transport", "INFO")
+	_ = logging.SetLogLevel("ethprovider", "INFO")
 	_ = logging.SetLogLevel("store", "INFO")
 	_ = logging.SetLogLevel("indexer", "INFO")
 	_ = logging.SetLogLevel("graphql", "INFO")
@@ -75,7 +75,7 @@ func before(_ *cli.Context) error {
 		_ = logging.SetLogLevel("chain", "DEBUG")
 		_ = logging.SetLogLevel("gateway", "DEBUG")
 		_ = logging.SetLogLevel("storage", "DEBUG")
-		_ = logging.SetLogLevel("transport", "DEBUG")
+		_ = logging.SetLogLevel("ethprovider", "DEBUG")
 		_ = logging.SetLogLevel("store", "DEBUG")
 		_ = logging.SetLogLevel("indexer", "DEBUG")
 		_ = logging.SetLogLevel("graphql", "DEBUG")
@@ -168,7 +168,7 @@ var initCmd = &cli.Command{
 		payee := cctx.String("payee")
 		provider := cctx.String("provider")
 		height := cctx.Int64("height")
-		_, err := transport.NewProvider(provider)
+		_, err := ethprovider.NewProvider(provider)
 
 		if err != nil {
 			return err
@@ -374,7 +374,7 @@ var cleanCmd = &cli.Command{
 			mds.Delete(ctx, datastore.NewKey("node-address"))
 			console.Println("Node address information has been deleted!")
 
-			tds, err := repo.Datastore(ctx, "/transport")
+			tds, err := repo.Datastore(ctx, "/ethprovider")
 			if err != nil {
 				return types.Wrap(types.ErrOpenDataStoreFailed, err)
 			}

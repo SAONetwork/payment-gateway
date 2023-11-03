@@ -3,9 +3,8 @@ package payment_gateway
 import (
 	"context"
 	"math/big"
+	"payment-gateway/ethprovider"
 	"strings"
-
-	"payment-gateway/transport"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -13,7 +12,7 @@ import (
 )
 
 type Listener struct {
-	Provider *transport.Provider
+	Provider *ethprovider.Provider
 	Portal   abi.ABI
 	Payee    abi.ABI
 	contract string
@@ -22,7 +21,7 @@ type Listener struct {
 
 func NewListener(provider string, contract string) (*Listener, error) {
 
-	client, err := transport.NewProvider(provider)
+	client, err := ethprovider.NewProvider(provider)
 	if err != nil {
 		log.Error("failed to open provider")
 		return nil, err

@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"path"
 	"payment-gateway/api"
-	"payment-gateway/transport"
 	"strconv"
 	"strings"
 
@@ -88,10 +86,6 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 
 	var stopFuncs []StopFunc
 	// p2p
-	peerKey, err := repo.PeerId()
-	if err != nil {
-		return nil, err
-	}
 
 	tds, err := repo.Datastore(ctx, "/transport")
 	if err != nil {
@@ -106,19 +100,6 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 		stopFuncs: stopFuncs,
 		tds:       tds,
 		chainSvc:  chainSvc,
-	}
-
-	transportStagingPath := path.Join(repo.Path, "staging")
-	rpcHandler := transport.NewHandler(ctx, &sn, tds, cfg, transportStagingPath)
-	for _, address := range cfg.Transport.TransportListenAddress {
-		if strings.Contains(address, "udp") {
-			_, err := transport.StartLibp2pRpcServer(ctx, address, peerKey, tds, cfg, rpcHandler)
-			if err != nil {
-				return nil, types.Wrap(types.ErrStartLibP2PRPCServerFailed, err)
-			}
-		} else {
-			return nil, types.Wrapf(types.ErrInvalidServerAddress, "invalid transport server address %s", address)
-		}
 	}
 
 	var status = NODE_STATUS_ONLINE | NODE_STATUS_SERVE_PAYMENT
