@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ipfs/go-datastore/query"
 	"math/big"
 	"net/http"
 	"payment-gateway/api"
+	types2 "payment-gateway/types"
 	"strconv"
 	"strings"
 
@@ -271,7 +273,7 @@ func (n *PaymentGateway) validSignature(ctx context.Context, proposal types.Cons
 func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
 	// check meta?
 
-	keys := datastore.NewKey("order_proposal_" + key)
+	keys := datastore.NewKey("order_proposal/" + key)
 	bytes, err := n.tds.Get(ctx, keys)
 	if err != nil {
 		return err
@@ -282,8 +284,9 @@ func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-
+	fmt.Printf("send proposal, commit: %s, key: %s\n", orderProposal.Proposal.CommitId, key)
 	_, _, _, err = n.chainSvc.StoreOrder(ctx, n.address, &orderProposal)
+
 	return err
 }
 
@@ -315,8 +318,8 @@ func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.Order
 	cidStr := cid.String()
 	tds, err := n.repo.Datastore(ctx, "/transport")
 
-	keys := datastore.NewKey("order_proposal_" + cidStr)
-	tds.Put(ctx, keys, byte)
+	key := datastore.NewKey("order_proposal/" + cidStr)
+	tds.Put(ctx, key, byte)
 
 	return cidStr, nil
 }
@@ -339,4 +342,59 @@ func newRpcServer(ga api.SaoApi, cfg *config.API) (*http.Server, error) {
 		return nil, types.Wrapf(types.ErrStartPRPCServerFailed, "failed to start json-rpc endpoint: %s", err)
 	}
 	return rpcServer, nil
+}
+
+func (n *PaymentGateway) ShowProposal(ctx context.Context, cid string) (infos []types2.ProposalInfo, err error) {
+	if cid != "" {
+
+		key := datastore.NewKey("order_proposal/" + cid)
+		value, err := n.tds.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+
+		var orderProposal types.OrderStoreProposal
+		err = json.Unmarshal(value, &orderProposal)
+		if err != nil {
+			return nil, err
+		}
+
+		infos = append(infos, types2.ProposalInfo{
+			Key:   key.String(),
+			Value: orderProposal,
+		})
+
+		return infos, nil
+	}
+
+	q, err := n.tds.Query(ctx, query.Query{
+		Prefix: "/order_proposal/",
+		Limit:  100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		res, exist := q.NextSync()
+		if !exist {
+			break
+		}
+
+		var orderProposal types.OrderStoreProposal
+		err = json.Unmarshal(res.Value, &orderProposal)
+		if err != nil {
+			return nil, err
+		}
+
+		infos = append(infos, types2.ProposalInfo{
+			Key:   res.Key,
+			Value: orderProposal,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return
 }

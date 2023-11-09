@@ -9,14 +9,15 @@ import (
 	"fmt"
 	"payment-gateway/ethprovider"
 	p "payment-gateway/payment-gateway"
+	types2 "payment-gateway/types"
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
-	cliutil "github.com/SaoNetwork/sao-node/cmd"
 	"github.com/SaoNetwork/sao-node/cmd/account"
 	"github.com/SaoNetwork/sao-node/node"
 	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
+	cliutil "payment-gateway/cmd"
 
 	"cosmossdk.io/math"
 	"github.com/common-nighthawk/go-figure"
@@ -43,7 +44,7 @@ var NodeApi string
 var FlagNodeApi = &cli.StringFlag{
 	Name:        "node",
 	Usage:       "node connection",
-	EnvVars:     []string{"SAO_NODE_API"},
+	EnvVars:     []string{"SAO_PAYMENT_API"},
 	Required:    false,
 	Destination: &NodeApi,
 }
@@ -51,7 +52,7 @@ var FlagNodeApi = &cli.StringFlag{
 var FlagRepo = &cli.StringFlag{
 	Name:    FlagStorageRepo,
 	Usage:   "repo directory for sao storage node",
-	EnvVars: []string{"SAO_NODE_PATH"},
+	EnvVars: []string{"SAO_PAYMENT_PATH"},
 	Value:   FlagStorageDefaultRepo,
 }
 
@@ -107,6 +108,8 @@ func main() {
 			infoCmd,
 			account.AccountCmd,
 			cliutil.GenerateDocCmd,
+			sendProposalCmd,
+			showProposalCmd,
 		},
 	}
 	app.Setup()
@@ -374,7 +377,7 @@ var cleanCmd = &cli.Command{
 			mds.Delete(ctx, datastore.NewKey("node-address"))
 			console.Println("Node address information has been deleted!")
 
-			tds, err := repo.Datastore(ctx, "/ethprovider")
+			tds, err := repo.Datastore(ctx, "/transport")
 			if err != nil {
 				return types.Wrap(types.ErrOpenDataStoreFailed, err)
 			}
@@ -461,4 +464,83 @@ var infoCmd = &cli.Command{
 
 func prepareRepo(cctx *cli.Context) (*repo.Repo, error) {
 	return repo.PrepareRepo(cctx.String(FlagStorageRepo))
+}
+
+var showProposalCmd = &cli.Command{
+	Name: "show-proposal",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "cid",
+			Usage:    "local proposal cid",
+			Required: false,
+		},
+	},
+	Usage: "show proposal",
+	Action: func(cctx *cli.Context) error {
+		// there is no place to trigger shutdown signal now. may add somewhere later.
+		ctx := cctx.Context
+
+		apiClient, closer, err := cliutil.GetNodeApi(cctx, cctx.String(FlagStorageRepo), NodeApi, cliutil.ApiToken)
+		if err != nil {
+			return types.Wrap(types.ErrCreateClientFailed, err)
+		}
+		defer closer()
+
+		cid := cctx.String("cid")
+		infos, err := apiClient.ShowProposal(ctx, cid)
+		if cid == "" {
+			for idx, info := range infos {
+				fmt.Printf("proposal count: %d \n", idx)
+				PrintProposalInfo(info)
+			}
+		} else {
+			fmt.Printf("key: %v \n", infos[0].Key)
+			PrintProposalInfo(infos[0])
+			fmt.Printf("value: %s \n", infos[0].Value.Proposal.String())
+		}
+
+		return err
+	},
+}
+
+var sendProposalCmd = &cli.Command{
+	Name: "send-proposal",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "cid",
+			Usage:    "local proposal cid",
+			Required: true,
+		},
+	},
+	Usage: "send proposal",
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+
+		apiClient, closer, err := cliutil.GetNodeApi(cctx, cctx.String(FlagStorageRepo), NodeApi, cliutil.ApiToken)
+		if err != nil {
+			return types.Wrap(types.ErrCreateClientFailed, err)
+		}
+		defer closer()
+
+		err = apiClient.SendProposal(ctx, cctx.String("cid"))
+
+		return err
+	},
+}
+
+func PrintProposalInfo(info types2.ProposalInfo) {
+	fmt.Printf("key: %v\n", info.Key)
+	fmt.Printf("value: \n")
+	fmt.Printf("  data id:   %v\n", info.Value.Proposal.DataId)
+	fmt.Printf("  cid:       %v\n", info.Value.Proposal.Cid)
+	fmt.Printf("  commit id: %v\n", info.Value.Proposal.CommitId)
+	fmt.Printf("  owner:     %v\n", info.Value.Proposal.Owner)
+	fmt.Printf("  alias:     %v\n", info.Value.Proposal.Alias)
+	fmt.Printf("  group id:  %v\n", info.Value.Proposal.GroupId)
+	fmt.Printf("  provider:  %v\n", info.Value.Proposal.Provider)
+	fmt.Printf("  size:      %v\n", info.Value.Proposal.Size_)
+	fmt.Printf("  replica:   %v\n", info.Value.Proposal.Replica)
+	fmt.Printf("  duration:  %v\n", info.Value.Proposal.Duration)
+	fmt.Printf("  timeout:   %v\n", info.Value.Proposal.Timeout)
+	fmt.Printf("  operator:  %v\n", info.Value.Proposal.Operation)
 }
