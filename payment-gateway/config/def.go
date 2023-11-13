@@ -1,39 +1,17 @@
 package config
 
-func DefaultSaoNode() *Config {
-	return &Config{
-		Chain: Chain{
-			Remote:     "http://localhost:26657",
-			WsEndpoint: "/websocket",
-		},
-	}
-}
+import "time"
 
-func defCommon() Common {
-	return Common{
+func DefaultSaoNode() *Node {
+	return &Node{
 		Chain: Chain{
 			Remote:     "http://localhost:26657",
 			WsEndpoint: "/websocket",
 		},
-		Libp2p: Libp2p{
-			ListenAddress: []string{
-				"/ip4/0.0.0.0/tcp/5153",
-			},
-			AnnounceAddresses: []string{},
-			PublicAddress:     "",
-			IntranetIpEnable:  true,
-			ExternalIpEnable:  true,
-		},
-		Transport: Transport{
-			TransportListenAddress: []string{
-				"/ip4/0.0.0.0/udp/5154",
-			},
-			StagingSapceSize: 32 * 1024 * 1024 * 1024,
-		},
-		Module: Module{
-			GatewayEnable: false,
-			StorageEnable: true,
-			IndexerEnable: false,
+		Api: API{
+			ListenAddress:    "/ip4/127.0.0.1/tcp/5161/http",
+			Timeout:          30 * time.Second,
+			EnablePermission: false,
 		},
 	}
 }

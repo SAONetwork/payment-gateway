@@ -15,9 +15,9 @@ import (
 	"github.com/SaoNetwork/sao-node/build"
 	"github.com/SaoNetwork/sao-node/cmd/account"
 	"github.com/SaoNetwork/sao-node/node"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
 	cliutil "payment-gateway/cmd"
+	"payment-gateway/payment-gateway/repo"
 
 	"cosmossdk.io/math"
 	"github.com/common-nighthawk/go-figure"
