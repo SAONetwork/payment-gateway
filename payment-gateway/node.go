@@ -17,8 +17,6 @@ import (
 	"github.com/SaoNetwork/sao-did/sid"
 	saodidtypes "github.com/SaoNetwork/sao-did/types"
 	"github.com/SaoNetwork/sao-node/chain"
-	"github.com/SaoNetwork/sao-node/node/config"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
 	"github.com/SaoNetwork/sao-node/utils"
 	saotypes "github.com/SaoNetwork/sao/x/sao/types"
@@ -28,6 +26,8 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/multiformats/go-multiaddr"
+	"payment-gateway/payment-gateway/config"
+	"payment-gateway/payment-gateway/repo"
 
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"

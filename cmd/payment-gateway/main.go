@@ -15,9 +15,9 @@ import (
 	"github.com/SaoNetwork/sao-node/build"
 	"github.com/SaoNetwork/sao-node/cmd/account"
 	"github.com/SaoNetwork/sao-node/node"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
 	cliutil "payment-gateway/cmd"
+	"payment-gateway/payment-gateway/repo"
 
 	"cosmossdk.io/math"
 	"github.com/common-nighthawk/go-figure"
@@ -455,8 +455,15 @@ var infoCmd = &cli.Command{
 				return err
 			}
 		}
+
+		didManager, err := cliutil.GetDidManager(cctx, creator)
+		if err != nil {
+			return err
+		}
+
 		chain.ShowBalance(ctx, creator)
 		chain.ShowNodeInfo(ctx, creator)
+		fmt.Println("PaymentDid:", didManager.Id)
 
 		return nil
 	},

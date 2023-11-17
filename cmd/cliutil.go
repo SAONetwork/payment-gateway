@@ -9,12 +9,12 @@ import (
 	"github.com/SaoNetwork/sao-node/chain"
 	gen "github.com/SaoNetwork/sao-node/gen/clidoc"
 	"github.com/SaoNetwork/sao-node/node"
-	"github.com/SaoNetwork/sao-node/node/config"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
 	"golang.org/x/term"
 	"payment-gateway/api"
 	apiclient "payment-gateway/api/client"
+	"payment-gateway/payment-gateway/config"
+	"payment-gateway/payment-gateway/repo"
 
 	saodid "github.com/SaoNetwork/sao-did"
 	saokey "github.com/SaoNetwork/sao-did/key"
@@ -77,37 +77,34 @@ func AskForPassphrase() (string, error) {
 	return string(passphrase), nil
 }
 
-func GetDidManager(cctx *cli.Context, keyName string) (*saodid.DidManager, string, error) {
-	if cctx.IsSet(FlagKeyName) {
-		keyName = cctx.String(FlagKeyName)
-	}
-
+func GetDidManager(cctx *cli.Context, address string) (*saodid.DidManager, error) {
 	// repo := cctx.String("repo")
-
-	address, err := chain.GetAddress(cctx.Context, KeyringHome, keyName)
-	if err != nil {
-		return nil, "", err
-	}
+	//
+	//address, err := chain.GetAddress(cctx.Context, KeyringHome, keyName)
+	//if err != nil {
+	//	return nil, "", err
+	//}
 
 	payload := fmt.Sprintf("cosmos %s allows to generate did", address)
-	secret, err := chain.SignByAccount(cctx.Context, KeyringHome, keyName, []byte(payload))
+	fmt.Println(payload)
+	secret, err := chain.SignByAddress(cctx.Context, KeyringHome, address, []byte(payload))
 	if err != nil {
-		return nil, "", types.Wrap(types.ErrSignedFailed, err)
+		return nil, types.Wrap(types.ErrSignedFailed, err)
 	}
 
 	provider, err := saokey.NewSecp256k1Provider(secret)
 	if err != nil {
-		return nil, "", types.Wrap(types.ErrCreateProviderFailed, err)
+		return nil, types.Wrap(types.ErrCreateProviderFailed, err)
 	}
 	resolver := saokey.NewKeyResolver()
 
 	didManager := saodid.NewDidManager(provider, resolver)
 	_, err = didManager.Authenticate([]string{}, "")
 	if err != nil {
-		return nil, "", types.Wrap(types.ErrAuthenticateFailed, err)
+		return nil, types.Wrap(types.ErrAuthenticateFailed, err)
 	}
 
-	return &didManager, address, nil
+	return &didManager, nil
 }
 
 // TODO: move to makefile
