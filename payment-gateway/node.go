@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/ipfs/go-datastore/query"
 	"math/big"
 	"net/http"
 	"payment-gateway/api"
 	types2 "payment-gateway/types"
 	"strconv"
 	"strings"
+
+	"github.com/ipfs/go-datastore/query"
 
 	saodid "github.com/SaoNetwork/sao-did"
 	"github.com/SaoNetwork/sao-did/sid"
@@ -139,6 +140,10 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 
 	listener, err := NewListener(string(provider), string(payee))
 
+	log.Infof("provider %s", string(provider))
+	log.Infof("payee %s", string(payee))
+	log.Infof("height %d", from)
+
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +181,11 @@ func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
 
 	for {
 		e := <-ch
+		if len(e.Topics) == 0 {
+			mds, _ := n.repo.Datastore(ctx, "/metadata")
+			mds.Put(ctx, datastore.NewKey("height"), []byte(fmt.Sprintf("%d", e.BlockNumber)))
+			continue
+		}
 		paymentId := new(big.Int).SetBytes(e.Topics[0].Bytes())
 
 		fmt.Println(paymentId)

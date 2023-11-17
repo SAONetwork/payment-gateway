@@ -50,13 +50,22 @@ func (l *Listener) ListenOnPayee(from int64, ch chan types.Log) {
 
 	for {
 		logs := l.Provider.FilterLogs(ctx, addresses, big.NewInt(from), big.NewInt(from+100))
+		log.Infof("events %d %d %d", len(logs), from, from+100)
 		for _, event := range logs {
 			ch <- event
 		}
 
+		if len(logs) == 0 {
+			ch <- types.Log{
+				BlockNumber: uint64(from + 100),
+			}
+		}
+
 		if uint64(from+100) > latest {
+			from = int64(latest)
 			break
 		}
+		from += 100
 	}
 
 	l.Provider.ListenEvent(addresses, ch, big.NewInt(int64(latest)), l.Done)
