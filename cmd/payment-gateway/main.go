@@ -455,8 +455,15 @@ var infoCmd = &cli.Command{
 				return err
 			}
 		}
+
+		didManager, err := cliutil.GetDidManager(cctx, creator)
+		if err != nil {
+			return err
+		}
+
 		chain.ShowBalance(ctx, creator)
 		chain.ShowNodeInfo(ctx, creator)
+		fmt.Println("PaymentDid:", didManager.Id)
 
 		return nil
 	},
