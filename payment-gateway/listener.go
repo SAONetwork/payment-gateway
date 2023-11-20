@@ -34,6 +34,7 @@ func NewListener(provider string, contract string) (*Listener, error) {
 		Provider: client,
 		Payee:    payee,
 		Portal:   portal,
+		contract: contract,
 		Done:     make(chan int, 1),
 	}
 
@@ -43,6 +44,8 @@ func NewListener(provider string, contract string) (*Listener, error) {
 func (l *Listener) ListenOnPayee(from int64, ch chan types.Log) {
 
 	latest := l.Provider.GetLatestBlock()
+
+	log.Infof("listen envent on %s from %d\n", l.contract, from)
 
 	addresses := []common.Address{common.HexToAddress(l.contract)}
 

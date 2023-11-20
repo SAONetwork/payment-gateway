@@ -13,6 +13,9 @@ import (
 
 	"github.com/ipfs/go-datastore/query"
 
+	"payment-gateway/payment-gateway/config"
+	"payment-gateway/payment-gateway/repo"
+
 	saodid "github.com/SaoNetwork/sao-did"
 	"github.com/SaoNetwork/sao-did/sid"
 	saodidtypes "github.com/SaoNetwork/sao-did/types"
@@ -26,8 +29,6 @@ import (
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/multiformats/go-multiaddr"
-	"payment-gateway/payment-gateway/config"
-	"payment-gateway/payment-gateway/repo"
 
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
@@ -151,6 +152,8 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	ch := make(chan ethtypes.Log, 10)
 
 	go sn.handlePayment(ch)
+
+	from = 10058643
 
 	go listener.ListenOnPayee(from, ch)
 
