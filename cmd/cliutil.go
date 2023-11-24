@@ -2,12 +2,10 @@ package cliutil
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"syscall"
 
 	"github.com/SaoNetwork/sao-node/chain"
-	gen "github.com/SaoNetwork/sao-node/gen/clidoc"
 	"github.com/SaoNetwork/sao-node/node"
 	"github.com/SaoNetwork/sao-node/types"
 	"golang.org/x/term"
@@ -105,48 +103,6 @@ func GetDidManager(cctx *cli.Context, address string) (*saodid.DidManager, error
 	}
 
 	return &didManager, nil
-}
-
-// TODO: move to makefile
-var GenerateDocCmd = &cli.Command{
-	Name:   "clidoc",
-	Hidden: true,
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:     "output",
-			Usage:    "file path to export to",
-			Required: false,
-		},
-		&cli.StringFlag{
-			Name:     "doctype",
-			Usage:    "current supported type: markdown / man",
-			Required: false,
-			Value:    "markdown",
-		},
-	},
-	Action: func(cctx *cli.Context) error {
-		var output string
-		var err error
-		if cctx.String("doctype") == "markdown" {
-			output, err = gen.ToMarkdown(cctx.App)
-		} else {
-			output, err = cctx.App.ToMan()
-		}
-		if err != nil {
-			return types.Wrap(types.ErrGenerateDocFailed, err)
-		}
-		outputFile := cctx.String("output")
-		if outputFile == "" {
-			outputFile = fmt.Sprintf("./docs/%s.md", cctx.App.Name)
-		}
-		err = os.WriteFile(outputFile, []byte(output), 0644)
-		if err != nil {
-			return types.Wrap(types.ErrGenerateDocFailed, err)
-		}
-		fmt.Printf("markdown clidoc is exported to %s", outputFile)
-		fmt.Println()
-		return nil
-	},
 }
 
 func GetNodeApi(cctx *cli.Context, repoPath string, nodeApi string, apiToken string) (api.SaoApi, jsonrpc.ClientCloser, error) {

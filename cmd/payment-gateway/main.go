@@ -13,10 +13,10 @@ import (
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
-	"github.com/SaoNetwork/sao-node/cmd/account"
 	"github.com/SaoNetwork/sao-node/node"
 	"github.com/SaoNetwork/sao-node/types"
 	cliutil "payment-gateway/cmd"
+	"payment-gateway/cmd/account"
 	"payment-gateway/payment-gateway/repo"
 
 	"cosmossdk.io/math"
@@ -107,7 +107,6 @@ func main() {
 			runCmd,
 			infoCmd,
 			account.AccountCmd,
-			cliutil.GenerateDocCmd,
 			sendProposalCmd,
 			showProposalCmd,
 		},
@@ -150,12 +149,6 @@ var initCmd = &cli.Command{
 			Value:    "/ip4/127.0.0.1/tcp/5153/",
 			Required: false,
 		},
-		&cli.UintFlag{
-			Name:     "tx-pool-size",
-			Usage:    "address pool size for sending message, the default value is 0",
-			Value:    0,
-			Required: false,
-		},
 	},
 	Action: func(cctx *cli.Context) error {
 		ctx := cctx.Context
@@ -167,7 +160,6 @@ var initCmd = &cli.Command{
 
 		repoPath := cctx.String(FlagStorageRepo)
 		creator := cctx.String("creator")
-		txPoolSize := cctx.Uint("tx-pool-size")
 		payee := cctx.String("payee")
 		provider := cctx.String("provider")
 		height := cctx.Int64("height")
@@ -177,7 +169,7 @@ var initCmd = &cli.Command{
 			return err
 		}
 
-		r, err := initRepo(repoPath, chainAddress, txPoolSize)
+		r, err := initRepo(repoPath, chainAddress)
 		if err != nil {
 			return err
 		}
@@ -248,33 +240,11 @@ var initCmd = &cli.Command{
 			fmt.Println(tx)
 		}
 
-		if txPoolSize > 0 {
-			err = chain.CreateAddressPool(ctx, cliutil.KeyringHome, txPoolSize)
-			if err != nil {
-				return err
-			}
-
-			ap, err := chain.LoadAddressPool(ctx, cliutil.KeyringHome, txPoolSize)
-			if err != nil {
-				return err
-			}
-
-			for address := range ap.Addresses {
-				amount := int64(1000 / txPoolSize)
-				if tx, err := chainSvc.Send(ctx, creator, address, amount); err != nil {
-					// TODO: clear dir
-					return err
-				} else {
-					fmt.Printf("Sent %d SAO from creator %s to pool address %s, txhash=%s\r", amount, creator, address, tx)
-				}
-			}
-		}
-
 		return nil
 	},
 }
 
-func initRepo(repoPath string, chainAddress string, TxPoolSize uint) (*repo.Repo, error) {
+func initRepo(repoPath string, chainAddress string) (*repo.Repo, error) {
 	// init base dir
 	r, err := repo.NewRepo(repoPath)
 	if err != nil {
@@ -291,7 +261,7 @@ func initRepo(repoPath string, chainAddress string, TxPoolSize uint) (*repo.Repo
 	}
 
 	log.Info("Initializing repo")
-	if err = r.Init(chainAddress, TxPoolSize); err != nil {
+	if err = r.Init(chainAddress); err != nil {
 		return nil, err
 	}
 	return r, nil
