@@ -25,7 +25,7 @@ type SaoApiStruct struct {
 
 		ShowProposal func(p0 context.Context, p1 string) ([]types2.ProposalInfo, error) `perm:"read"`
 
-		StoreProposal func(p0 context.Context, p1 types.OrderStoreProposal) (string, error) `perm:"write"`
+		StoreProposal func(p0 context.Context, p1 types.OrderStoreProposal) (types2.StoreProposalResponse, error) `perm:"write"`
 	}
 }
 
@@ -87,15 +87,15 @@ func (s *SaoApiStub) ShowProposal(p0 context.Context, p1 string) ([]types2.Propo
 	return *new([]types2.ProposalInfo), ErrNotSupported
 }
 
-func (s *SaoApiStruct) StoreProposal(p0 context.Context, p1 types.OrderStoreProposal) (string, error) {
+func (s *SaoApiStruct) StoreProposal(p0 context.Context, p1 types.OrderStoreProposal) (types2.StoreProposalResponse, error) {
 	if s.Internal.StoreProposal == nil {
-		return "", ErrNotSupported
+		return *new(types2.StoreProposalResponse), ErrNotSupported
 	}
 	return s.Internal.StoreProposal(p0, p1)
 }
 
-func (s *SaoApiStub) StoreProposal(p0 context.Context, p1 types.OrderStoreProposal) (string, error) {
-	return "", ErrNotSupported
+func (s *SaoApiStub) StoreProposal(p0 context.Context, p1 types.OrderStoreProposal) (types2.StoreProposalResponse, error) {
+	return *new(types2.StoreProposalResponse), ErrNotSupported
 }
 
 var _ SaoApi = new(SaoApiStruct)

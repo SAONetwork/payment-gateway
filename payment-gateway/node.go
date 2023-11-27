@@ -303,29 +303,29 @@ func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
 	return err
 }
 
-func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (string, error) {
+func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (types2.StoreProposalResponse, error) {
 	// check meta?
 	addr, err := n.chainSvc.QueryPaymentAddress(ctx, proposal.Proposal.PaymentDid)
 	if err != nil {
-		return "", types.Wrapf(err, "failed to query payment address")
+		return types2.StoreProposalResponse{}, types.Wrapf(err, "failed to query payment address")
 	}
 	if addr != n.address {
-		return "", types.Wrapf(types.ErrInvalidServerAddress, "not empty")
+		return types2.StoreProposalResponse{}, types.Wrapf(types.ErrInvalidServerAddress, "not empty")
 	}
 
 	err = n.validSignature(ctx, &proposal.Proposal, proposal.Proposal.Owner, proposal.JwsSignature)
 	if err != nil {
-		return "", err
+		return types2.StoreProposalResponse{}, err
 	}
 
 	byte, err := json.Marshal(proposal)
 	if err != nil {
-		return "", err
+		return types2.StoreProposalResponse{}, err
 	}
 
 	cid, err := utils.CalculateCid(byte)
 	if err != nil {
-		return "", err
+		return types2.StoreProposalResponse{}, err
 	}
 
 	cidStr := cid.String()
@@ -334,7 +334,7 @@ func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.Order
 	key := datastore.NewKey("order_proposal/" + cidStr)
 	tds.Put(ctx, key, byte)
 
-	return cidStr, nil
+	return types2.StoreProposalResponse{ProposalCid: cidStr, DataId: proposal.Proposal.DataId}, nil
 }
 
 func newRpcServer(ga api.SaoApi, cfg *config.API) (*http.Server, error) {

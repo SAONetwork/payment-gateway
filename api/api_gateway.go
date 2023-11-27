@@ -15,8 +15,8 @@ type SaoApi interface {
 	AuthNew(ctx context.Context, perms []auth.Permission) ([]byte, error)    //perm:admin
 
 	// GetNodeAddress get current node's sao chain address
-	GetNodeAddress(ctx context.Context) (string, error)                                    //perm:read
-	SendProposal(ctx context.Context, key string) error                                    // perm:write
-	StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (string, error)  // perm:write
-	ShowProposal(ctx context.Context, cid string) (infos []types2.ProposalInfo, err error) // perm:read
+	GetNodeAddress(ctx context.Context) (string, error)                                                         //perm:read
+	SendProposal(ctx context.Context, key string) error                                                         // perm:write
+	StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (types2.StoreProposalResponse, error) // perm:write
+	ShowProposal(ctx context.Context, cid string) (infos []types2.ProposalInfo, err error)                      // perm:read
 }
