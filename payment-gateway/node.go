@@ -153,8 +153,6 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 
 	go sn.handlePayment(ch)
 
-	from = 10058643
-
 	go listener.ListenOnPayee(from, ch)
 
 	chainSvc.StartStatusReporter(ctx, sn.address, status)
