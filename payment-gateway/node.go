@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/big"
 	"net/http"
 	"payment-gateway/api"
 	types2 "payment-gateway/types"
@@ -187,19 +186,23 @@ func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
 			mds.Put(ctx, datastore.NewKey("height"), []byte(fmt.Sprintf("%d", e.BlockNumber)))
 			continue
 		}
-		paymentId := new(big.Int).SetBytes(e.Topics[0].Bytes())
 
-		fmt.Println(paymentId)
+		if e.Topics[0].Hex() != "0x8b2acafd58ef561b4e5ad252185bef93fe6e31dc1d9035e5aa9ec9425a8f5884" {
+			continue
+		}
 
-		val, _ := payeeABI.Events["PaymentCreated"].Inputs.UnpackValues(e.Data)
+		val, err := payeeABI.Events["PaymentCreated"].Inputs.UnpackValues(e.Data)
 
-		cid := val[0].(string)
+		log.Debug("val", val, err)
 
-		fmt.Println(cid)
+		dataId := val[0].(string)
 
-		err := n.SendProposal(ctx, cid)
+		cid := val[1].(string)
+
+		err = n.SendProposal(ctx, cid)
+
 		if err != nil {
-			log.Errorf("failed to process payment %d, cid %s, error: %s", paymentId, cid, err.Error())
+			log.Errorf("failed to process payment %s, cid %s, tx %s, error: %s", dataId, cid, e.TxHash.Hex(), err.Error())
 		}
 	}
 

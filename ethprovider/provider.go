@@ -3,7 +3,6 @@ package ethprovider
 import (
 	"context"
 	"math/big"
-	"os"
 
 	logging "github.com/ipfs/go-log/v2"
 
@@ -57,10 +56,11 @@ func (p *Provider) ListenEvent(addresses []common.Address, event_chan chan types
 			return
 		case err := <-sub.Err():
 			log.Debugf("%s %s\n", err, p.URL)
-			os.Exit(0)
-			break
+			query.FromBlock = from
+			sub, _ = p.client.SubscribeFilterLogs(ctx, query, channel)
 		case log := <-channel:
 			event_chan <- log
+			from = new(big.Int).SetUint64(log.BlockNumber)
 		}
 	}
 
