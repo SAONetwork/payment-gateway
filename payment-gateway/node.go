@@ -199,8 +199,10 @@ func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
 
 		fmt.Println(cid)
 
-		n.SendProposal(ctx, cid)
-
+		err := n.SendProposal(ctx, cid)
+		if err != nil {
+			log.Errorf("failed to process payment %d, cid %s, error: %s", paymentId, cid, err.Error())
+		}
 	}
 
 }
