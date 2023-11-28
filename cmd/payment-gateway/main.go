@@ -7,15 +7,17 @@ package main
 import (
 	"bufio"
 	"fmt"
-	payment_gateway "payment-gateway/payment-gateway"
+	"payment-gateway/ethprovider"
+	p "payment-gateway/payment-gateway"
+	types2 "payment-gateway/types"
 	"strings"
 
 	"github.com/SaoNetwork/sao-node/build"
-	cliutil "github.com/SaoNetwork/sao-node/cmd"
-	"github.com/SaoNetwork/sao-node/cmd/account"
 	"github.com/SaoNetwork/sao-node/node"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
+	cliutil "payment-gateway/cmd"
+	"payment-gateway/cmd/account"
+	"payment-gateway/payment-gateway/repo"
 
 	"cosmossdk.io/math"
 	"github.com/common-nighthawk/go-figure"
@@ -42,7 +44,7 @@ var NodeApi string
 var FlagNodeApi = &cli.StringFlag{
 	Name:        "node",
 	Usage:       "node connection",
-	EnvVars:     []string{"SAO_NODE_API"},
+	EnvVars:     []string{"SAO_PAYMENT_API"},
 	Required:    false,
 	Destination: &NodeApi,
 }
@@ -50,7 +52,7 @@ var FlagNodeApi = &cli.StringFlag{
 var FlagRepo = &cli.StringFlag{
 	Name:    FlagStorageRepo,
 	Usage:   "repo directory for sao storage node",
-	EnvVars: []string{"SAO_NODE_PATH"},
+	EnvVars: []string{"SAO_PAYMENT_PATH"},
 	Value:   FlagStorageDefaultRepo,
 }
 
@@ -62,7 +64,7 @@ func before(_ *cli.Context) error {
 	_ = logging.SetLogLevel("chain", "INFO")
 	_ = logging.SetLogLevel("gateway", "INFO")
 	_ = logging.SetLogLevel("storage", "INFO")
-	_ = logging.SetLogLevel("transport", "INFO")
+	_ = logging.SetLogLevel("ethprovider", "INFO")
 	_ = logging.SetLogLevel("store", "INFO")
 	_ = logging.SetLogLevel("indexer", "INFO")
 	_ = logging.SetLogLevel("graphql", "INFO")
@@ -74,7 +76,7 @@ func before(_ *cli.Context) error {
 		_ = logging.SetLogLevel("chain", "DEBUG")
 		_ = logging.SetLogLevel("gateway", "DEBUG")
 		_ = logging.SetLogLevel("storage", "DEBUG")
-		_ = logging.SetLogLevel("transport", "DEBUG")
+		_ = logging.SetLogLevel("ethprovider", "DEBUG")
 		_ = logging.SetLogLevel("store", "DEBUG")
 		_ = logging.SetLogLevel("indexer", "DEBUG")
 		_ = logging.SetLogLevel("graphql", "DEBUG")
@@ -105,7 +107,8 @@ func main() {
 			runCmd,
 			infoCmd,
 			account.AccountCmd,
-			cliutil.GenerateDocCmd,
+			sendProposalCmd,
+			showProposalCmd,
 		},
 	}
 	app.Setup()
@@ -126,15 +129,24 @@ var initCmd = &cli.Command{
 			Required: true,
 		},
 		&cli.StringFlag{
+			Name:     "payee",
+			Usage:    "payee contract address",
+			Required: true,
+		},
+		&cli.StringFlag{
+			Name:     "provider",
+			Usage:    "chain provider",
+			Required: true,
+		},
+		&cli.IntFlag{
+			Name:     "height",
+			Usage:    "height",
+			Required: true,
+		},
+		&cli.StringFlag{
 			Name:     "multiaddr",
 			Usage:    "nodes' multiaddr",
 			Value:    "/ip4/127.0.0.1/tcp/5153/",
-			Required: false,
-		},
-		&cli.UintFlag{
-			Name:     "tx-pool-size",
-			Usage:    "address pool size for sending message, the default value is 0",
-			Value:    0,
 			Required: false,
 		},
 	},
@@ -148,9 +160,16 @@ var initCmd = &cli.Command{
 
 		repoPath := cctx.String(FlagStorageRepo)
 		creator := cctx.String("creator")
-		txPoolSize := cctx.Uint("tx-pool-size")
+		payee := cctx.String("payee")
+		provider := cctx.String("provider")
+		height := cctx.Int64("height")
+		_, err := ethprovider.NewProvider(provider)
 
-		r, err := initRepo(repoPath, chainAddress, txPoolSize)
+		if err != nil {
+			return err
+		}
+
+		r, err := initRepo(repoPath, chainAddress)
 		if err != nil {
 			return err
 		}
@@ -166,6 +185,18 @@ var initCmd = &cli.Command{
 			return types.Wrap(types.ErrOpenDataStoreFailed, err)
 		}
 		if err := mds.Put(ctx, datastore.NewKey("node-address"), []byte(creator)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("payee"), []byte(payee)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("provider"), []byte(provider)); err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
+		if err := mds.Put(ctx, datastore.NewKey("height"), []byte(fmt.Sprintf("%d", height))); err != nil {
 			return types.Wrap(types.ErrGetFailed, err)
 		}
 
@@ -209,33 +240,11 @@ var initCmd = &cli.Command{
 			fmt.Println(tx)
 		}
 
-		if txPoolSize > 0 {
-			err = chain.CreateAddressPool(ctx, cliutil.KeyringHome, txPoolSize)
-			if err != nil {
-				return err
-			}
-
-			ap, err := chain.LoadAddressPool(ctx, cliutil.KeyringHome, txPoolSize)
-			if err != nil {
-				return err
-			}
-
-			for address := range ap.Addresses {
-				amount := int64(1000 / txPoolSize)
-				if tx, err := chainSvc.Send(ctx, creator, address, amount); err != nil {
-					// TODO: clear dir
-					return err
-				} else {
-					fmt.Printf("Sent %d SAO from creator %s to pool address %s, txhash=%s\r", amount, creator, address, tx)
-				}
-			}
-		}
-
 		return nil
 	},
 }
 
-func initRepo(repoPath string, chainAddress string, TxPoolSize uint) (*repo.Repo, error) {
+func initRepo(repoPath string, chainAddress string) (*repo.Repo, error) {
 	// init base dir
 	r, err := repo.NewRepo(repoPath)
 	if err != nil {
@@ -252,7 +261,7 @@ func initRepo(repoPath string, chainAddress string, TxPoolSize uint) (*repo.Repo
 	}
 
 	log.Info("Initializing repo")
-	if err = r.Init(chainAddress, TxPoolSize); err != nil {
+	if err = r.Init(chainAddress); err != nil {
 		return nil, err
 	}
 	return r, nil
@@ -366,7 +375,7 @@ var runCmd = &cli.Command{
 			return err
 		}
 
-		saopayment, err := payment_gateway.NewPaymentGateway(ctx, repo, cliutil.KeyringHome)
+		saopayment, err := p.NewPaymentGateway(ctx, repo, cliutil.KeyringHome)
 		if err != nil {
 			return err
 		}
@@ -416,8 +425,15 @@ var infoCmd = &cli.Command{
 				return err
 			}
 		}
+
+		didManager, err := cliutil.GetDidManager(cctx, creator)
+		if err != nil {
+			return err
+		}
+
 		chain.ShowBalance(ctx, creator)
 		chain.ShowNodeInfo(ctx, creator)
+		fmt.Println("PaymentDid:", didManager.Id)
 
 		return nil
 	},
@@ -425,4 +441,83 @@ var infoCmd = &cli.Command{
 
 func prepareRepo(cctx *cli.Context) (*repo.Repo, error) {
 	return repo.PrepareRepo(cctx.String(FlagStorageRepo))
+}
+
+var showProposalCmd = &cli.Command{
+	Name: "show-proposal",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "cid",
+			Usage:    "local proposal cid",
+			Required: false,
+		},
+	},
+	Usage: "show proposal",
+	Action: func(cctx *cli.Context) error {
+		// there is no place to trigger shutdown signal now. may add somewhere later.
+		ctx := cctx.Context
+
+		apiClient, closer, err := cliutil.GetNodeApi(cctx, cctx.String(FlagStorageRepo), NodeApi, cliutil.ApiToken)
+		if err != nil {
+			return types.Wrap(types.ErrCreateClientFailed, err)
+		}
+		defer closer()
+
+		cid := cctx.String("cid")
+		infos, err := apiClient.ShowProposal(ctx, cid)
+		if cid == "" {
+			for idx, info := range infos {
+				fmt.Printf("proposal count: %d \n", idx)
+				PrintProposalInfo(info)
+			}
+		} else {
+			fmt.Printf("key: %v \n", infos[0].Key)
+			PrintProposalInfo(infos[0])
+			fmt.Printf("value: %s \n", infos[0].Value.Proposal.String())
+		}
+
+		return err
+	},
+}
+
+var sendProposalCmd = &cli.Command{
+	Name: "send-proposal",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:     "cid",
+			Usage:    "local proposal cid",
+			Required: true,
+		},
+	},
+	Usage: "send proposal",
+	Action: func(cctx *cli.Context) error {
+		ctx := cctx.Context
+
+		apiClient, closer, err := cliutil.GetNodeApi(cctx, cctx.String(FlagStorageRepo), NodeApi, cliutil.ApiToken)
+		if err != nil {
+			return types.Wrap(types.ErrCreateClientFailed, err)
+		}
+		defer closer()
+
+		err = apiClient.SendProposal(ctx, cctx.String("cid"))
+
+		return err
+	},
+}
+
+func PrintProposalInfo(info types2.ProposalInfo) {
+	fmt.Printf("key: %v\n", info.Key)
+	fmt.Printf("value: \n")
+	fmt.Printf("  data id:   %v\n", info.Value.Proposal.DataId)
+	fmt.Printf("  cid:       %v\n", info.Value.Proposal.Cid)
+	fmt.Printf("  commit id: %v\n", info.Value.Proposal.CommitId)
+	fmt.Printf("  owner:     %v\n", info.Value.Proposal.Owner)
+	fmt.Printf("  alias:     %v\n", info.Value.Proposal.Alias)
+	fmt.Printf("  group id:  %v\n", info.Value.Proposal.GroupId)
+	fmt.Printf("  provider:  %v\n", info.Value.Proposal.Provider)
+	fmt.Printf("  size:      %v\n", info.Value.Proposal.Size_)
+	fmt.Printf("  replica:   %v\n", info.Value.Proposal.Replica)
+	fmt.Printf("  duration:  %v\n", info.Value.Proposal.Duration)
+	fmt.Printf("  timeout:   %v\n", info.Value.Proposal.Timeout)
+	fmt.Printf("  operator:  %v\n", info.Value.Proposal.Operation)
 }

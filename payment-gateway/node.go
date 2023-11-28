@@ -3,24 +3,32 @@ package payment_gateway
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math/big"
+	"net/http"
+	"payment-gateway/api"
+	types2 "payment-gateway/types"
+	"strconv"
+	"strings"
+
+	"github.com/ipfs/go-datastore/query"
+
+	"payment-gateway/payment-gateway/config"
+	"payment-gateway/payment-gateway/repo"
+
 	saodid "github.com/SaoNetwork/sao-did"
 	"github.com/SaoNetwork/sao-did/sid"
 	saodidtypes "github.com/SaoNetwork/sao-did/types"
 	"github.com/SaoNetwork/sao-node/chain"
-	"github.com/SaoNetwork/sao-node/node/config"
-	"github.com/SaoNetwork/sao-node/node/repo"
 	"github.com/SaoNetwork/sao-node/types"
+	"github.com/SaoNetwork/sao-node/utils"
 	saotypes "github.com/SaoNetwork/sao/x/sao/types"
 	"github.com/dvsekhvalnov/jose2go/base64url"
+	"github.com/ethereum/go-ethereum/accounts/abi"
+	ethtypes "github.com/ethereum/go-ethereum/core/types"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
-	"github.com/ipfs/go-cid"
 	"github.com/multiformats/go-multiaddr"
-	"net/http"
-	"path"
-	"payment-gateway/api"
-	"payment-gateway/transport"
-	"strings"
 
 	"github.com/ipfs/go-datastore"
 	logging "github.com/ipfs/go-log/v2"
@@ -82,10 +90,6 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 
 	var stopFuncs []StopFunc
 	// p2p
-	peerKey, err := repo.PeerId()
-	if err != nil {
-		return nil, err
-	}
 
 	tds, err := repo.Datastore(ctx, "/transport")
 	if err != nil {
@@ -100,19 +104,6 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 		stopFuncs: stopFuncs,
 		tds:       tds,
 		chainSvc:  chainSvc,
-	}
-
-	transportStagingPath := path.Join(repo.Path, "staging")
-	rpcHandler := transport.NewHandler(ctx, &sn, tds, cfg, transportStagingPath)
-	for _, address := range cfg.Transport.TransportListenAddress {
-		if strings.Contains(address, "udp") {
-			_, err := transport.StartLibp2pRpcServer(ctx, address, peerKey, tds, cfg, rpcHandler)
-			if err != nil {
-				return nil, types.Wrap(types.ErrStartLibP2PRPCServerFailed, err)
-			}
-		} else {
-			return nil, types.Wrapf(types.ErrInvalidServerAddress, "invalid transport server address %s", address)
-		}
 	}
 
 	var status = NODE_STATUS_ONLINE | NODE_STATUS_SERVE_PAYMENT
@@ -142,6 +133,30 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 		return nil, err
 	}
 
+	provider, _ := mds.Get(ctx, datastore.NewKey("provider"))
+	payee, _ := mds.Get(ctx, datastore.NewKey("payee"))
+	height, _ := mds.Get(ctx, datastore.NewKey("height"))
+
+	from, _ := strconv.ParseInt(string(height), 10, 64)
+
+	listener, err := NewListener(string(provider), string(payee))
+
+	log.Infof("provider %s", string(provider))
+	log.Infof("payee %s", string(payee))
+	log.Infof("height %d", from)
+
+	if err != nil {
+		return nil, err
+	}
+
+	ch := make(chan ethtypes.Log, 10)
+
+	go sn.handlePayment(ch)
+
+	from = 10058643
+
+	go listener.ListenOnPayee(from, ch)
+
 	chainSvc.StartStatusReporter(ctx, sn.address, status)
 
 	// api server
@@ -160,6 +175,36 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	})
 
 	return &sn, nil
+}
+
+func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
+
+	payeeABI, _ := abi.JSON(strings.NewReader(PayeeABI))
+	ctx := context.Background()
+
+	for {
+		e := <-ch
+		if len(e.Topics) == 0 {
+			mds, _ := n.repo.Datastore(ctx, "/metadata")
+			mds.Put(ctx, datastore.NewKey("height"), []byte(fmt.Sprintf("%d", e.BlockNumber)))
+			continue
+		}
+		paymentId := new(big.Int).SetBytes(e.Topics[0].Bytes())
+
+		fmt.Println(paymentId)
+
+		val, _ := payeeABI.Events["PaymentCreated"].Inputs.UnpackValues(e.Data)
+
+		cid := val[0].(string)
+
+		fmt.Println(cid)
+
+		err := n.SendProposal(ctx, cid)
+		if err != nil {
+			log.Errorf("failed to process payment %d, cid %s, error: %s", paymentId, cid, err.Error())
+		}
+	}
+
 }
 
 func (n *PaymentGateway) Stop(ctx context.Context) error {
@@ -243,7 +288,7 @@ func (n *PaymentGateway) validSignature(ctx context.Context, proposal types.Cons
 func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
 	// check meta?
 
-	keys := datastore.NewKey("order_proposal_" + key)
+	keys := datastore.NewKey("order_proposal/" + key)
 	bytes, err := n.tds.Get(ctx, keys)
 	if err != nil {
 		return err
@@ -254,36 +299,44 @@ func (n *PaymentGateway) SendProposal(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
-
+	fmt.Printf("send proposal, commit: %s, key: %s\n", orderProposal.Proposal.CommitId, key)
 	_, _, _, err = n.chainSvc.StoreOrder(ctx, n.address, &orderProposal)
+
 	return err
 }
 
-func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (string, error) {
+func (n *PaymentGateway) StoreProposal(ctx context.Context, proposal types.OrderStoreProposal) (types2.StoreProposalResponse, error) {
 	// check meta?
 	addr, err := n.chainSvc.QueryPaymentAddress(ctx, proposal.Proposal.PaymentDid)
 	if err != nil {
-		return "", err
+		return types2.StoreProposalResponse{}, types.Wrapf(err, "failed to query payment address")
 	}
 	if addr != n.address {
-		return "", types.ErrInvalidServerAddress
+		return types2.StoreProposalResponse{}, types.Wrapf(types.ErrInvalidServerAddress, "not empty")
 	}
 
 	err = n.validSignature(ctx, &proposal.Proposal, proposal.Proposal.Owner, proposal.JwsSignature)
 	if err != nil {
-		return "", err
+		return types2.StoreProposalResponse{}, err
 	}
 
 	byte, err := json.Marshal(proposal)
-	_, cid, err := cid.CidFromBytes(byte)
+	if err != nil {
+		return types2.StoreProposalResponse{}, err
+	}
+
+	cid, err := utils.CalculateCid(byte)
+	if err != nil {
+		return types2.StoreProposalResponse{}, err
+	}
 
 	cidStr := cid.String()
 	tds, err := n.repo.Datastore(ctx, "/transport")
 
-	keys := datastore.NewKey("order_proposal_" + cidStr)
-	tds.Put(ctx, keys, byte)
+	key := datastore.NewKey("order_proposal/" + cidStr)
+	tds.Put(ctx, key, byte)
 
-	return cidStr, nil
+	return types2.StoreProposalResponse{ProposalCid: cidStr, DataId: proposal.Proposal.DataId}, nil
 }
 
 func newRpcServer(ga api.SaoApi, cfg *config.API) (*http.Server, error) {
@@ -304,4 +357,59 @@ func newRpcServer(ga api.SaoApi, cfg *config.API) (*http.Server, error) {
 		return nil, types.Wrapf(types.ErrStartPRPCServerFailed, "failed to start json-rpc endpoint: %s", err)
 	}
 	return rpcServer, nil
+}
+
+func (n *PaymentGateway) ShowProposal(ctx context.Context, cid string) (infos []types2.ProposalInfo, err error) {
+	if cid != "" {
+
+		key := datastore.NewKey("order_proposal/" + cid)
+		value, err := n.tds.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+
+		var orderProposal types.OrderStoreProposal
+		err = json.Unmarshal(value, &orderProposal)
+		if err != nil {
+			return nil, err
+		}
+
+		infos = append(infos, types2.ProposalInfo{
+			Key:   key.String(),
+			Value: orderProposal,
+		})
+
+		return infos, nil
+	}
+
+	q, err := n.tds.Query(ctx, query.Query{
+		Prefix: "/order_proposal/",
+		Limit:  100,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		res, exist := q.NextSync()
+		if !exist {
+			break
+		}
+
+		var orderProposal types.OrderStoreProposal
+		err = json.Unmarshal(res.Value, &orderProposal)
+		if err != nil {
+			return nil, err
+		}
+
+		infos = append(infos, types2.ProposalInfo{
+			Key:   res.Key,
+			Value: orderProposal,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return
 }
