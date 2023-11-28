@@ -12,7 +12,7 @@ all: payment-gateway
 payment-gateway:
 	$(GOCC) build $(GOFLAGS) -o saopayment ./cmd/payment-gateway
 .PHONY: payment-gateway
-BINS+=payment-gateway
+BINS+=saopayment
 
 cbor-gen:
 	$(GOCC) run ./gen/cbor/cbor_gen.go
