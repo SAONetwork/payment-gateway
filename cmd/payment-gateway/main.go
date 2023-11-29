@@ -6,7 +6,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
+	"github.com/tendermint/tendermint/rpc/client/http"
 	"payment-gateway/ethprovider"
 	p "payment-gateway/payment-gateway"
 	types2 "payment-gateway/types"
@@ -233,6 +235,11 @@ var initCmd = &cli.Command{
 
 		}
 
+		err = updateDid(cctx, creator, chainSvc)
+		if err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
 		if tx, err := chainSvc.Create(ctx, creator); err != nil {
 			// TODO: clear dir
 			return err
@@ -309,6 +316,11 @@ var joinCmd = &cli.Command{
 			return types.Wrap(types.ErrGetFailed, err)
 		}
 
+		err = updateDid(cctx, creator, chain)
+		if err != nil {
+			return types.Wrap(types.ErrGetFailed, err)
+		}
+
 		tx, err := chain.Create(ctx, creator)
 		if err != nil {
 			return err
@@ -318,6 +330,45 @@ var joinCmd = &cli.Command{
 
 		return nil
 	},
+}
+
+func getChainId(ctx context.Context, chainAddress string) (string, error) {
+
+	rpc, err := http.New(chainAddress, "/websocket")
+	if err != nil {
+		return "", err
+	}
+	statusResp, err := rpc.Status(ctx)
+	if err != nil {
+		return "", err
+	}
+	return statusResp.NodeInfo.Network, nil
+}
+
+func updateDid(cctx *cli.Context, creator string, chainSvc *chain.ChainSvc) error {
+	ctx := cctx.Context
+	did, err := cliutil.GetDidManager(cctx, creator)
+	if err != nil {
+		return err
+	}
+
+	chainId, err := getChainId(ctx, cctx.String("chain-address"))
+	if err != nil {
+		return err
+	}
+
+	_, err = chainSvc.GetDidInfo(ctx, did.Id)
+	if err != nil {
+		_, err = chainSvc.UpdateDidBinding(ctx, creator, did.Id, fmt.Sprintf("cosmos:%s:%s", chainId, creator))
+		if err != nil {
+			// the DID has been bound
+			if !strings.Contains(err.Error(), "change payment address is not supported yet") {
+				return err
+			}
+			fmt.Printf("the DID %s has been bound\n", did.Id)
+		}
+	}
+	return nil
 }
 
 var cleanCmd = &cli.Command{
