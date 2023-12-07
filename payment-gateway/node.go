@@ -4,11 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"math/big"
 	"net/http"
+	"os"
 	"payment-gateway/api"
+	"payment-gateway/ethprovider"
 	types2 "payment-gateway/types"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ipfs/go-datastore/query"
 
@@ -24,7 +29,9 @@ import (
 	saotypes "github.com/SaoNetwork/sao/x/sao/types"
 	"github.com/dvsekhvalnov/jose2go/base64url"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/common"
 	ethtypes "github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/filecoin-project/go-jsonrpc/auth"
 	"github.com/gbrlsnchs/jwt/v3"
 	"github.com/multiformats/go-multiaddr"
@@ -150,7 +157,7 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 
 	ch := make(chan ethtypes.Log, 10)
 
-	go sn.handlePayment(ch)
+	go sn.handlePayment(string(provider), string(payee), ch)
 
 	go listener.ListenOnPayee(from, ch)
 
@@ -174,7 +181,7 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	return &sn, nil
 }
 
-func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
+func (n *PaymentGateway) handlePayment(provider string, payee string, ch chan ethtypes.Log) {
 
 	payeeABI, _ := abi.JSON(strings.NewReader(PayeeABI))
 	ctx := context.Background()
@@ -204,8 +211,45 @@ func (n *PaymentGateway) handlePayment(ch chan ethtypes.Log) {
 		if err != nil {
 			log.Errorf("failed to process payment %s, cid %s, tx %s, error: %s", dataId, cid, e.TxHash.Hex(), err.Error())
 		}
+		go n.CheckOrder(provider, dataId, payee)
 	}
 
+}
+
+func (n *PaymentGateway) CheckOrder(provider string, dataId string, payee string) {
+
+	time.Sleep(60 * time.Second)
+
+	pk := os.Getenv("PAYEE_PRIVATE_KEy")
+	privateKey, _ := crypto.HexToECDSA(pk) // Private key
+
+	addr := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+	payeeABI, _ := abi.JSON(strings.NewReader(PayeeABI))
+	client, _ := ethprovider.NewProvider(provider)
+	nonce, _ := client.GetNonce(addr)
+
+	const donId = "0x66756e2d706f6c79676f6e2d6d756d6261692d31000000000000000000000000"
+	source, _ := ioutil.ReadFile("./order.js")
+	data, _ := payeeABI.Methods["confirmPayment"].Inputs.Pack(string(source), []string{dataId}, 1048, 250000, donId)
+
+	to := common.HexToAddress(payee)
+
+	gas_price, _ := client.Getgasprice()
+
+	tx := ethtypes.NewTx(&ethtypes.DynamicFeeTx{
+		ChainID:   big.NewInt(80001),
+		Nonce:     nonce,
+		To:        &to,
+		GasFeeCap: gas_price,
+		GasTipCap: gas_price,
+		Value:     big.NewInt(0),
+		Gas:       21000,
+		Data:      data,
+	})
+
+	signedTx, _ := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(80001)), privateKey)
+	client.SendTx(signedTx)
 }
 
 func (n *PaymentGateway) Stop(ctx context.Context) error {
