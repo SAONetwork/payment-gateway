@@ -151,6 +151,8 @@ func NewPaymentGateway(ctx context.Context, repo *repo.Repo, keyringHome string)
 	log.Infof("payee %s", string(payee))
 	log.Infof("height %d", from)
 
+	//sn.CheckOrder(string(provider), "558499b0-9669-11ee-97bf-5dcb14bc518d", string(payee))
+
 	if err != nil {
 		return nil, err
 	}
@@ -211,17 +213,21 @@ func (n *PaymentGateway) handlePayment(provider string, payee string, ch chan et
 		if err != nil {
 			log.Errorf("failed to process payment %s, cid %s, tx %s, error: %s", dataId, cid, e.TxHash.Hex(), err.Error())
 		}
-		go n.CheckOrder(provider, dataId, payee)
+		n.CheckOrder(provider, dataId, payee)
 	}
 
 }
 
 func (n *PaymentGateway) CheckOrder(provider string, dataId string, payee string) {
 
-	time.Sleep(60 * time.Second)
+	time.Sleep(10 * time.Second)
 
-	pk := os.Getenv("PAYEE_PRIVATE_KEy")
-	privateKey, _ := crypto.HexToECDSA(pk) // Private key
+	pk := os.Getenv("PAYEE_PRIVATE_KEY")
+	privateKey, err := crypto.HexToECDSA(pk) // Private key
+
+	if err != nil {
+		log.Debug("failed to load privae key %s", err.Error())
+	}
 
 	addr := crypto.PubkeyToAddress(privateKey.PublicKey)
 
@@ -229,9 +235,20 @@ func (n *PaymentGateway) CheckOrder(provider string, dataId string, payee string
 	client, _ := ethprovider.NewProvider(provider)
 	nonce, _ := client.GetNonce(addr)
 
-	const donId = "0x66756e2d706f6c79676f6e2d6d756d6261692d31000000000000000000000000"
+	//const donId = "0x66756e2d706f6c79676f6e2d6d756d6261692d31000000000000000000000000"
 	source, _ := ioutil.ReadFile("./order.js")
-	data, _ := payeeABI.Methods["confirmPayment"].Inputs.Pack(string(source), []string{dataId}, 1048, 250000, donId)
+
+	donId := [32]byte{}
+	copy(donId[:], []byte("66756e2d706f6c79676f6e2d6d756d6261692d31000000000000000000000000"))
+
+	payload := make([]byte, 0)
+	payload = append(payload, payeeABI.Methods["confirmPayment"].ID...)
+	data, err := payeeABI.Methods["confirmPayment"].Inputs.Pack(string(source), []string{dataId}, uint64(1048), uint32(250000), donId)
+	if err != nil {
+		log.Errorf("failed to encode data %s", err.Error())
+		return
+	}
+	payload = append(payload, data...)
 
 	to := common.HexToAddress(payee)
 
@@ -244,11 +261,13 @@ func (n *PaymentGateway) CheckOrder(provider string, dataId string, payee string
 		GasFeeCap: gas_price,
 		GasTipCap: gas_price,
 		Value:     big.NewInt(0),
-		Gas:       21000,
-		Data:      data,
+		Gas:       2000000,
+		Data:      payload,
 	})
 
 	signedTx, _ := ethtypes.SignTx(tx, ethtypes.LatestSignerForChainID(big.NewInt(80001)), privateKey)
+
+	log.Debugf("send tx %s", signedTx.Hash().Hex())
 	client.SendTx(signedTx)
 }
 
